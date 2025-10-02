@@ -1,0 +1,5 @@
+{
+  "name": "Agenda Semanal do Escritório",
+  "description": "Uma aplicação web para planejar e visualizar a presença semanal da equipe no escritório. Os usuários podem selecionar os dias em que estarão no escritório, ver quem mais estará presente em cada dia e salvar suas escolhas. A agenda pode ser resetada semanalmente.",
+  "requestFramePermissions": []
+}
