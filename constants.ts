@@ -17,11 +17,3 @@ export const DAYS_OF_WEEK: string[] = [
   'Quinta-feira',
   'Sexta-feira',
 ];
-
-export const INITIAL_SCHEDULE = {
-    'Segunda-feira': [],
-    'Terça-feira': [],
-    'Quarta-feira': [4],
-    'Quinta-feira': [],
-    'Sexta-feira': [3, 6, 5],
-};

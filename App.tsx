@@ -1,10 +1,22 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Schedule } from './types';
-import { USERS, DAYS_OF_WEEK, INITIAL_SCHEDULE } from './constants';
+import { USERS, DAYS_OF_WEEK } from './constants';
 import DayCard from './components/DayCard';
 import Toast from './components/Toast';
+import ErrorBanner from './components/ErrorBanner';
 import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/icons';
+
+// A free, no-auth JSON storage service (jsonblob.com) is used as a simple backend.
+// This ID points to a specific JSON file that will store our shared schedule.
+const JSONBLOB_API_URL = 'https://jsonblob.com/api/jsonBlob/1266530182098640896';
+
+const getEmptySchedule = (): Schedule => {
+    const emptySchedule: Schedule = {};
+    DAYS_OF_WEEK.forEach(day => {
+        emptySchedule[day] = [];
+    });
+    return emptySchedule;
+};
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User>(USERS[0]);
@@ -12,15 +24,42 @@ const App: React.FC = () => {
   const [selectedDays, setSelectedDays] = useState<{ [day: string]: boolean }>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
+  const [error, setError] = useState<string>('');
+
+  const fetchSchedule = useCallback(async () => {
+    try {
+      const response = await fetch(JSONBLOB_API_URL);
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      const data = await response.json();
+      
+      // Use functional update to compare with the latest state
+      setSchedule(currentSchedule => {
+        if (JSON.stringify(currentSchedule) !== JSON.stringify(data)) {
+          return data;
+        }
+        return currentSchedule;
+      });
+
+    } catch (err) {
+      console.error("Failed to fetch schedule:", err);
+      setError("Não foi possível carregar a agenda. Verifique sua conexão e tente recarregar a página.");
+    } finally {
+        // Only set loading to false on the initial fetch
+        if(isLoading) setIsLoading(false);
+    }
+  }, [isLoading]);
 
   useEffect(() => {
-    // Simulate initial data fetching
-    setTimeout(() => {
-      setSchedule(INITIAL_SCHEDULE);
-      setIsLoading(false);
-    }, 1000);
-  }, []);
+    fetchSchedule(); // Initial fetch
+    const intervalId = setInterval(fetchSchedule, 5000); // Poll for updates every 5 seconds
+    
+    return () => clearInterval(intervalId); // Cleanup on unmount
+  }, [fetchSchedule]);
+
 
   const updateUserSelection = useCallback((user: User, currentSchedule: Schedule) => {
     const userSelections: { [day: string]: boolean } = {};
@@ -31,10 +70,10 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (schedule) {
       updateUserSelection(currentUser, schedule);
     }
-  }, [currentUser, schedule, isLoading, updateUserSelection]);
+  }, [currentUser, schedule, updateUserSelection]);
 
   const handleUserChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedUser = USERS.find(u => u.name === event.target.value);
@@ -47,40 +86,66 @@ const App: React.FC = () => {
     setSelectedDays(prev => ({ ...prev, [day]: !prev[day] }));
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      const newSchedule = { ...schedule };
-      DAYS_OF_WEEK.forEach(day => {
+    setError('');
+    
+    const newSchedule = { ...schedule };
+    DAYS_OF_WEEK.forEach(day => {
         const isSelected = selectedDays[day];
         const scheduledUsers = newSchedule[day] ? [...newSchedule[day]] : [];
         const userIndex = scheduledUsers.indexOf(currentUser.id);
 
         if (isSelected && userIndex === -1) {
-          scheduledUsers.push(currentUser.id);
+            scheduledUsers.push(currentUser.id);
         } else if (!isSelected && userIndex > -1) {
-          scheduledUsers.splice(userIndex, 1);
+            scheduledUsers.splice(userIndex, 1);
         }
-        newSchedule[day] = scheduledUsers;
-      });
-      setSchedule(newSchedule);
-      setIsSaving(false);
-      setToastMessage('Agendamentos salvos com sucesso!');
-    }, 1500);
+        newSchedule[day] = scheduledUsers.sort((a,b) => a - b);
+    });
+    
+    try {
+        const response = await fetch(JSONBLOB_API_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(newSchedule),
+        });
+        if (!response.ok) throw new Error('Failed to save schedule');
+        
+        const updatedSchedule = await response.json();
+        setSchedule(updatedSchedule);
+        setToastMessage('Agendamentos salvos com sucesso!');
+    } catch (err) {
+        console.error("Failed to save changes:", err);
+        setError("Não foi possível salvar as alterações. Tente novamente.");
+    } finally {
+        setIsSaving(false);
+    }
   };
   
-  const handleResetSchedule = () => {
-    setIsSaving(true);
-     setTimeout(() => {
-        const resetSchedule: Schedule = {};
-        DAYS_OF_WEEK.forEach(day => {
-            resetSchedule[day] = [];
+  const handleResetSchedule = async () => {
+    setIsResetting(true);
+    setError('');
+    
+    const emptySchedule = getEmptySchedule();
+
+    try {
+        const response = await fetch(JSONBLOB_API_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(emptySchedule),
         });
-        setSchedule(resetSchedule);
-        updateUserSelection(currentUser, resetSchedule);
-        setIsSaving(false);
+        if (!response.ok) throw new Error('Failed to reset schedule');
+        
+        const updatedSchedule = await response.json();
+        setSchedule(updatedSchedule);
         setToastMessage('Agenda da semana resetada!');
-    }, 1500);
+    } catch (err) {
+        console.error("Failed to reset schedule:", err);
+        setError("Não foi possível resetar a agenda. Tente novamente.");
+    } finally {
+        setIsResetting(false);
+    }
   };
 
   if (isLoading) {
@@ -88,7 +153,7 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <SpinnerIcon className="w-12 h-12 text-indigo-600 mx-auto" />
-          <p className="text-lg text-gray-600 mt-4">Carregando agenda...</p>
+          <p className="text-lg text-gray-600 mt-4">Carregando agenda compartilhada...</p>
         </div>
       </div>
     );
@@ -98,6 +163,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} />}
       <div className="container mx-auto px-4 py-8">
+        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
         <header className="text-center mb-10">
           <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
             <span className="text-5xl">📅</span>
@@ -150,7 +216,7 @@ const App: React.FC = () => {
           <div>
             <button
                 onClick={handleSaveChanges}
-                disabled={isSaving}
+                disabled={isSaving || isResetting}
                 className="bg-green-600 text-white font-bold py-3 px-12 rounded-lg shadow-lg hover:bg-green-700 transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center mx-auto text-lg"
             >
                 {isSaving ? (
@@ -170,10 +236,10 @@ const App: React.FC = () => {
           <div>
              <button
                 onClick={handleResetSchedule}
-                disabled={isSaving}
+                disabled={isSaving || isResetting}
                 className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-red-700 transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
             >
-                 {isSaving ? (
+                 {isResetting ? (
                     <>
                         <SpinnerIcon className="w-4 h-4 mr-2" />
                         Resetando...
