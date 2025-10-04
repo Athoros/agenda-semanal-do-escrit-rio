@@ -7,7 +7,7 @@ import ErrorBanner from './components/ErrorBanner';
 import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/icons';
 
 // Switched to a more reliable, free JSON storage service (myjson.is) and implemented a robust retry mechanism.
-const API_URL = 'https://api.myjson.is/v1/bins/1g8slav';
+const API_URL = 'https://api.npoint.io/ad63fecfda78b862f288';
 
 const getEmptySchedule = (): Schedule => {
     const emptySchedule: Schedule = {};
