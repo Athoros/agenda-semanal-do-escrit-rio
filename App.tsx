@@ -196,7 +196,7 @@ const App: React.FC = () => {
           <p className="text-lg text-gray-600">Planeje sua presença no escritório para a semana</p>
         </header>
 
-        <div className="max-w-xs mx-auto mb-4 relative">
+        <div className="max-w-xs mx-auto mb-10 relative">
           <select
             value={currentUser.name}
             onChange={handleUserChange}
@@ -210,14 +210,6 @@ const App: React.FC = () => {
             <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
           </div>
         </div>
-        
-        <div className="text-center mb-10">
-            <div className="inline-flex items-center bg-white border border-gray-200 text-gray-700 py-2 px-4 rounded-full shadow-sm">
-                <UsersIcon className="w-4 h-4 mr-2" />
-                <span>Logado como: <strong>{currentUser.name}</strong></span>
-            </div>
-        </div>
-
 
         <main className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-12">
           {DAYS_OF_WEEK.map(day => {
