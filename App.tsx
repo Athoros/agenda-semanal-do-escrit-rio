@@ -108,7 +108,7 @@ const App: React.FC = () => {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             const response = await fetch(API_URL, {
-                method: 'PUT',
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(dataToSave),
             });
