@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Schedule } from './types';
 import { USERS, DAYS_OF_WEEK } from './constants';
 import DayCard from './components/DayCard';
@@ -6,9 +6,8 @@ import Toast from './components/Toast';
 import ErrorBanner from './components/ErrorBanner';
 import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/icons';
 
-// A free, no-auth JSON storage service (jsonblob.com) is used as a simple backend.
-// This ID points to a specific JSON file that will store our shared schedule.
-const JSONBLOB_API_URL = 'https://jsonblob.com/api/jsonBlob/1266530182098640896';
+// Switched to a more reliable, free JSON storage service (myjson.is) and implemented a robust retry mechanism.
+const API_URL = 'https://api.myjson.is/v1/bins/1g8slav';
 
 const getEmptySchedule = (): Schedule => {
     const emptySchedule: Schedule = {};
@@ -27,37 +26,55 @@ const App: React.FC = () => {
   const [isResetting, setIsResetting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const initialLoad = useRef(true);
 
   const fetchSchedule = useCallback(async () => {
-    try {
-      const response = await fetch(JSONBLOB_API_URL);
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      const data = await response.json();
-      
-      // Use functional update to compare with the latest state
-      setSchedule(currentSchedule => {
-        if (JSON.stringify(currentSchedule) !== JSON.stringify(data)) {
-          return data;
-        }
-        return currentSchedule;
-      });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            // Cache-busting: add a unique timestamp to the URL to bypass aggressive browser cache.
+            const url = new URL(API_URL);
+            url.searchParams.append('t', new Date().getTime().toString());
 
-    } catch (err) {
-      console.error("Failed to fetch schedule:", err);
-      setError("Não foi possível carregar a agenda. Verifique sua conexão e tente recarregar a página.");
-    } finally {
-        // Only set loading to false on the initial fetch
-        if(isLoading) setIsLoading(false);
+            const response = await fetch(url.toString(), { cache: 'no-store' });
+            if (!response.ok) {
+                // If the bin is new or empty, the API returns 404. Handle this gracefully.
+                if (response.status === 404) {
+                    console.warn('Schedule not found (404), initializing a new one in local state.');
+                    const emptySchedule = getEmptySchedule();
+                    setSchedule(emptySchedule);
+                    setError(''); // Clear any previous loading errors
+                    return; // Exit successfully
+                }
+                throw new Error('Network response was not ok');
+            }
+            const data = await response.json();
+            setSchedule(data);
+            setError(''); // Clear previous errors on successful fetch
+            return; // Exit loop on success
+        } catch (err) {
+            console.error(`Failed to fetch schedule (attempt ${attempt}):`, err);
+            if (attempt === 3) {
+                setError("Não foi possível carregar a agenda. Verifique sua conexão e tente recarregar a página.");
+            }
+            // Wait with exponential backoff before retrying
+            await new Promise(res => setTimeout(res, 1000 * attempt));
+        }
     }
-  }, [isLoading]);
+  }, []);
 
   useEffect(() => {
-    fetchSchedule(); // Initial fetch
-    const intervalId = setInterval(fetchSchedule, 5000); // Poll for updates every 5 seconds
+    const performFetch = async () => {
+        await fetchSchedule();
+        if (initialLoad.current) {
+            setIsLoading(false);
+            initialLoad.current = false;
+        }
+    };
+
+    performFetch();
+    const intervalId = setInterval(performFetch, 15000); // Poll for updates every 15 seconds
     
-    return () => clearInterval(intervalId); // Cleanup on unmount
+    return () => clearInterval(intervalId);
   }, [fetchSchedule]);
 
 
@@ -70,7 +87,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (schedule) {
+    if (schedule && Object.keys(schedule).length > 0) {
       updateUserSelection(currentUser, schedule);
     }
   }, [currentUser, schedule, updateUserSelection]);
@@ -84,6 +101,31 @@ const App: React.FC = () => {
 
   const handleToggleDay = (day: string) => {
     setSelectedDays(prev => ({ ...prev, [day]: !prev[day] }));
+  };
+
+  // Reusable save function with retry logic
+  const saveDataWithRetry = async (dataToSave: Schedule): Promise<Schedule> => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const response = await fetch(API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSave),
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${errorText}`);
+            }
+            return await response.json(); // Success
+        } catch (err) {
+            console.error(`Save operation failed (attempt ${attempt}):`, err);
+            if (attempt === 3) {
+                throw err; // Re-throw the error after the last attempt
+            }
+            await new Promise(res => setTimeout(res, 1000 * attempt));
+        }
+    }
+    throw new Error("Save operation failed after all retries.");
   };
 
   const handleSaveChanges = async () => {
@@ -105,18 +147,10 @@ const App: React.FC = () => {
     });
     
     try {
-        const response = await fetch(JSONBLOB_API_URL, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify(newSchedule),
-        });
-        if (!response.ok) throw new Error('Failed to save schedule');
-        
-        const updatedSchedule = await response.json();
+        const updatedSchedule = await saveDataWithRetry(newSchedule);
         setSchedule(updatedSchedule);
         setToastMessage('Agendamentos salvos com sucesso!');
     } catch (err) {
-        console.error("Failed to save changes:", err);
         setError("Não foi possível salvar as alterações. Tente novamente.");
     } finally {
         setIsSaving(false);
@@ -126,22 +160,12 @@ const App: React.FC = () => {
   const handleResetSchedule = async () => {
     setIsResetting(true);
     setError('');
-    
     const emptySchedule = getEmptySchedule();
-
     try {
-        const response = await fetch(JSONBLOB_API_URL, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify(emptySchedule),
-        });
-        if (!response.ok) throw new Error('Failed to reset schedule');
-        
-        const updatedSchedule = await response.json();
+        const updatedSchedule = await saveDataWithRetry(emptySchedule);
         setSchedule(updatedSchedule);
         setToastMessage('Agenda da semana resetada!');
     } catch (err) {
-        console.error("Failed to reset schedule:", err);
         setError("Não foi possível resetar a agenda. Tente novamente.");
     } finally {
         setIsResetting(false);
