@@ -7,3 +7,10 @@ export interface User {
 export interface Schedule {
   [day: string]: number[];
 }
+
+export interface WeatherData {
+  temp: number;
+  description: string;
+  icon: string;
+  pop: number; // Probability of Precipitation
+}

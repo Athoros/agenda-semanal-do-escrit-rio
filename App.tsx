@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, Schedule } from './types';
+import { User, Schedule, WeatherData } from './types';
 import { USERS, DAYS_OF_WEEK } from './constants';
 import DayCard from './components/DayCard';
 import Toast from './components/Toast';
@@ -8,6 +9,12 @@ import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/ic
 
 // Switched to a more reliable, free JSON storage service (myjson.is) and implemented a robust retry mechanism.
 const API_URL = 'https://api.npoint.io/ad63fecfda78b862f288';
+
+// OpenWeatherMap Configuration - NOTE: The API key should be set in your environment variables.
+const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+const RIO_LAT = -22.9068;
+const RIO_LON = -43.1729;
+const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/forecast?lat=${RIO_LAT}&lon=${RIO_LON}&appid=${OPENWEATHER_API_KEY}&units=metric&lang=pt_br`;
 
 const getEmptySchedule = (): Schedule => {
     const emptySchedule: Schedule = {};
@@ -26,6 +33,7 @@ const App: React.FC = () => {
   const [isResetting, setIsResetting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [weatherForecast, setWeatherForecast] = useState<Record<string, WeatherData> | null>(null);
   const initialLoad = useRef(true);
 
   const fetchSchedule = useCallback(async () => {
@@ -77,6 +85,50 @@ const App: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [fetchSchedule]);
 
+  useEffect(() => {
+    const fetchWeather = async () => {
+        if (!OPENWEATHER_API_KEY) {
+            console.warn("OpenWeatherMap API key not provided. Weather forecast will be unavailable.");
+            setWeatherForecast({}); // Indicate loaded but no data state
+            return;
+        }
+
+        try {
+            const response = await fetch(WEATHER_API_URL);
+            if (!response.ok) {
+                throw new Error(`Weather API request failed with status ${response.status}`);
+            }
+            const data = await response.json();
+            
+            const processedForecast: Record<string, WeatherData> = {};
+            data.list.forEach((item: any) => {
+                const date = new Date(item.dt * 1000);
+                const dayOfWeek = date.getDay(); // Sunday is 0, Monday is 1...
+
+                if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
+                    const dayName = DAYS_OF_WEEK[dayOfWeek - 1];
+                    // Prefer the forecast around noon, but take the first available if noon isn't present
+                    if (!processedForecast[dayName] || item.dt_txt.includes("12:00:00")) {
+                        processedForecast[dayName] = {
+                            temp: item.main.temp,
+                            description: item.weather[0].description,
+                            icon: item.weather[0].icon,
+                            pop: item.pop,
+                        };
+                    }
+                }
+            });
+            setWeatherForecast(processedForecast);
+        } catch (err) {
+            console.error("Error fetching weather:", err);
+            setError("Não foi possível carregar a previsão do tempo.");
+            setWeatherForecast({}); // Set to empty object on error to stop loading state
+        }
+    };
+
+    fetchWeather();
+  }, []);
+
 
   const updateUserSelection = useCallback((user: User, currentSchedule: Schedule) => {
     const userSelections: { [day: string]: boolean } = {};
@@ -103,7 +155,6 @@ const App: React.FC = () => {
     setSelectedDays(prev => ({ ...prev, [day]: !prev[day] }));
   };
 
-  // Reusable save function with retry logic
   const saveDataWithRetry = async (dataToSave: Schedule): Promise<Schedule> => {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -223,6 +274,8 @@ const App: React.FC = () => {
                 currentUser={currentUser}
                 isSelected={selectedDays[day] || false}
                 onToggle={handleToggleDay}
+                weather={weatherForecast?.[day]}
+                weatherLoaded={weatherForecast !== null}
               />
             );
           })}
