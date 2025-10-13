@@ -102,7 +102,7 @@ const App: React.FC = () => {
             const processedForecast: Record<string, WeatherData> = {};
             data.list.forEach((item: any) => {
                 const date = new Date(item.dt * 1000);
-                const dayOfWeek = date.getDay(); // Sunday is 0, Monday is 1...
+                const dayOfWeek = date.getUTCDay(); // Sunday is 0, Monday is 1... (USE UTC DAY)
 
                 if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
                     const dayName = DAYS_OF_WEEK[dayOfWeek - 1];
