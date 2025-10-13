@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Schedule, WeatherData } from './types';
 import { USERS, DAYS_OF_WEEK } from './constants';
@@ -11,7 +10,7 @@ import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/ic
 const API_URL = 'https://api.npoint.io/ad63fecfda78b862f288';
 
 // OpenWeatherMap Configuration - NOTE: The API key should be set in your environment variables.
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+const OPENWEATHER_API_KEY = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
 const RIO_LAT = -22.9068;
 const RIO_LON = -43.1729;
 const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/forecast?lat=${RIO_LAT}&lon=${RIO_LON}&appid=${OPENWEATHER_API_KEY}&units=metric&lang=pt_br`;
