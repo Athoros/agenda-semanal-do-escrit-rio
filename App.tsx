@@ -100,23 +100,59 @@ const App: React.FC = () => {
             const data = await response.json();
             
             const processedForecast: Record<string, WeatherData> = {};
-            data.list.forEach((item: any) => {
-                const date = new Date(item.dt * 1000);
-                const dayOfWeek = date.getUTCDay(); // Sunday is 0, Monday is 1... (USE UTC DAY)
+            const forecastsByDay: Record<string, any[]> = {};
+            const today = new Date();
+            today.setUTCHours(0, 0, 0, 0);
 
-                if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Monday to Friday
+            // Group forecasts by day string (YYYY-MM-DD)
+            data.list.forEach((item: any) => {
+                const forecastDate = new Date(item.dt * 1000);
+                if (forecastDate < today) return; // Ignore past forecasts
+
+                const dayString = forecastDate.toISOString().split('T')[0];
+                if (!forecastsByDay[dayString]) {
+                    forecastsByDay[dayString] = [];
+                }
+                forecastsByDay[dayString].push(item);
+            });
+
+            // Iterate through the next 7 days to find forecasts for the current week's weekdays
+            for (let i = 0; i < 7; i++) {
+                const targetDate = new Date(today);
+                targetDate.setUTCDate(today.getUTCDate() + i);
+                
+                const dayOfWeek = targetDate.getUTCDay();
+
+                // Check if it's a weekday (Monday to Friday)
+                if (dayOfWeek >= 1 && dayOfWeek <= 5) {
                     const dayName = DAYS_OF_WEEK[dayOfWeek - 1];
-                    // Prefer the forecast around noon, but take the first available if noon isn't present
-                    if (!processedForecast[dayName] || item.dt_txt.includes("12:00:00")) {
+                    const dayString = targetDate.toISOString().split('T')[0];
+                    
+                    const forecastsForDay = forecastsByDay[dayString];
+
+                    if (forecastsForDay && forecastsForDay.length > 0) {
+                        // Find the forecast closest to noon (12:00 UTC) for a representative weather
+                        let chosenForecast = forecastsForDay[0];
+                        let minHourDiff = 24;
+
+                        forecastsForDay.forEach(f => {
+                            const forecastHour = new Date(f.dt * 1000).getUTCHours();
+                            const diff = Math.abs(forecastHour - 12);
+                            if (diff < minHourDiff) {
+                                minHourDiff = diff;
+                                chosenForecast = f;
+                            }
+                        });
+
                         processedForecast[dayName] = {
-                            temp: item.main.temp,
-                            description: item.weather[0].description,
-                            icon: item.weather[0].icon,
-                            pop: item.pop,
+                            temp: chosenForecast.main.temp,
+                            description: chosenForecast.weather[0].description,
+                            icon: chosenForecast.weather[0].icon,
+                            pop: chosenForecast.pop,
                         };
                     }
                 }
-            });
+            }
             setWeatherForecast(processedForecast);
         } catch (err) {
             console.error("Error fetching weather:", err);
