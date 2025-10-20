@@ -1,19 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, Schedule, WeatherData } from './types';
-import { USERS, DAYS_OF_WEEK } from './constants';
+import React, { useState, useEffect, useCallback } from 'react';
+import { User, Schedule } from './types';
+import { USERS, DAYS_OF_WEEK, API_URL } from './constants';
 import DayCard from './components/DayCard';
 import Toast from './components/Toast';
 import ErrorBanner from './components/ErrorBanner';
-import { CalendarIcon, UsersIcon, ClockIcon, SpinnerIcon } from './components/icons';
-
-// Switched to a more reliable, free JSON storage service (myjson.is) and implemented a robust retry mechanism.
-const API_URL = 'https://api.npoint.io/ad63fecfda78b862f288';
-
-// OpenWeatherMap Configuration - NOTE: The API key should be set in your environment variables.
-const OPENWEATHER_API_KEY = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
-const RIO_LAT = -22.9068;
-const RIO_LON = -43.1729;
-const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/forecast?lat=${RIO_LAT}&lon=${RIO_LON}&appid=${OPENWEATHER_API_KEY}&units=metric&lang=pt_br`;
+import HistoryView from './components/HistoryView';
+import { CalendarIcon, HistoryIcon, BookOpenIcon, SpinnerIcon } from './components/icons';
 
 const getEmptySchedule = (): Schedule => {
     const emptySchedule: Schedule = {};
@@ -24,176 +16,19 @@ const getEmptySchedule = (): Schedule => {
 };
 
 const App: React.FC = () => {
+  const [view, setView] = useState<'agenda' | 'history'>('agenda');
   const [currentUser, setCurrentUser] = useState<User>(USERS[0]);
   const [schedule, setSchedule] = useState<Schedule>({});
   const [selectedDays, setSelectedDays] = useState<{ [day: string]: boolean }>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [isResetting, setIsResetting] = useState<boolean>(false);
+  const [savingDay, setSavingDay] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
-  const [weatherForecast, setWeatherForecast] = useState<Record<string, WeatherData> | null>(null);
-  const initialLoad = useRef(true);
 
-  const fetchSchedule = useCallback(async () => {
+  const saveDataWithRetry = async (dataToSave: any, url: string = API_URL): Promise<any> => {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            // Cache-busting: add a unique timestamp to the URL to bypass aggressive browser cache.
-            const url = new URL(API_URL);
-            url.searchParams.append('t', new Date().getTime().toString());
-
-            const response = await fetch(url.toString(), { cache: 'no-store' });
-            if (!response.ok) {
-                // If the bin is new or empty, the API returns 404. Handle this gracefully.
-                if (response.status === 404) {
-                    console.warn('Schedule not found (404), initializing a new one in local state.');
-                    const emptySchedule = getEmptySchedule();
-                    setSchedule(emptySchedule);
-                    setError(''); // Clear any previous loading errors
-                    return; // Exit successfully
-                }
-                throw new Error('Network response was not ok');
-            }
-            const data = await response.json();
-            setSchedule(data);
-            setError(''); // Clear previous errors on successful fetch
-            return; // Exit loop on success
-        } catch (err) {
-            console.error(`Failed to fetch schedule (attempt ${attempt}):`, err);
-            if (attempt === 3) {
-                setError("Não foi possível carregar a agenda. Verifique sua conexão e tente recarregar a página.");
-            }
-            // Wait with exponential backoff before retrying
-            await new Promise(res => setTimeout(res, 1000 * attempt));
-        }
-    }
-  }, []);
-
-  useEffect(() => {
-    const performFetch = async () => {
-        await fetchSchedule();
-        if (initialLoad.current) {
-            setIsLoading(false);
-            initialLoad.current = false;
-        }
-    };
-
-    performFetch();
-    const intervalId = setInterval(performFetch, 15000); // Poll for updates every 15 seconds
-    
-    return () => clearInterval(intervalId);
-  }, [fetchSchedule]);
-
-  useEffect(() => {
-    const fetchWeather = async () => {
-        if (!OPENWEATHER_API_KEY) {
-            console.warn("OpenWeatherMap API key not provided. Weather forecast will be unavailable.");
-            setWeatherForecast({}); // Indicate loaded but no data state
-            return;
-        }
-
-        try {
-            const response = await fetch(WEATHER_API_URL);
-            if (!response.ok) {
-                throw new Error(`Weather API request failed with status ${response.status}`);
-            }
-            const data = await response.json();
-            
-            const processedForecast: Record<string, WeatherData> = {};
-            const forecastsByDay: Record<string, any[]> = {};
-            const today = new Date();
-            today.setUTCHours(0, 0, 0, 0);
-
-            // Group forecasts by day string (YYYY-MM-DD)
-            data.list.forEach((item: any) => {
-                const forecastDate = new Date(item.dt * 1000);
-                if (forecastDate < today) return; // Ignore past forecasts
-
-                const dayString = forecastDate.toISOString().split('T')[0];
-                if (!forecastsByDay[dayString]) {
-                    forecastsByDay[dayString] = [];
-                }
-                forecastsByDay[dayString].push(item);
-            });
-
-            // Iterate through the next 7 days to find forecasts for the current week's weekdays
-            for (let i = 0; i < 7; i++) {
-                const targetDate = new Date(today);
-                targetDate.setUTCDate(today.getUTCDate() + i);
-                
-                const dayOfWeek = targetDate.getUTCDay();
-
-                // Check if it's a weekday (Monday to Friday)
-                if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-                    const dayName = DAYS_OF_WEEK[dayOfWeek - 1];
-                    const dayString = targetDate.toISOString().split('T')[0];
-                    
-                    const forecastsForDay = forecastsByDay[dayString];
-
-                    if (forecastsForDay && forecastsForDay.length > 0) {
-                        // Find the forecast closest to noon (12:00 UTC) for a representative weather
-                        let chosenForecast = forecastsForDay[0];
-                        let minHourDiff = 24;
-
-                        forecastsForDay.forEach(f => {
-                            const forecastHour = new Date(f.dt * 1000).getUTCHours();
-                            const diff = Math.abs(forecastHour - 12);
-                            if (diff < minHourDiff) {
-                                minHourDiff = diff;
-                                chosenForecast = f;
-                            }
-                        });
-
-                        processedForecast[dayName] = {
-                            temp: chosenForecast.main.temp,
-                            description: chosenForecast.weather[0].description,
-                            icon: chosenForecast.weather[0].icon,
-                            pop: chosenForecast.pop,
-                        };
-                    }
-                }
-            }
-            setWeatherForecast(processedForecast);
-        } catch (err) {
-            console.error("Error fetching weather:", err);
-            setError("Não foi possível carregar a previsão do tempo.");
-            setWeatherForecast({}); // Set to empty object on error to stop loading state
-        }
-    };
-
-    fetchWeather();
-  }, []);
-
-
-  const updateUserSelection = useCallback((user: User, currentSchedule: Schedule) => {
-    const userSelections: { [day: string]: boolean } = {};
-    DAYS_OF_WEEK.forEach(day => {
-      userSelections[day] = currentSchedule[day]?.includes(user.id) || false;
-    });
-    setSelectedDays(userSelections);
-  }, []);
-
-  useEffect(() => {
-    if (schedule && Object.keys(schedule).length > 0) {
-      updateUserSelection(currentUser, schedule);
-    }
-  }, [currentUser, schedule, updateUserSelection]);
-
-  const handleUserChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedUser = USERS.find(u => u.name === event.target.value);
-    if (selectedUser) {
-      setCurrentUser(selectedUser);
-    }
-  };
-
-  const handleToggleDay = (day: string) => {
-    setSelectedDays(prev => ({ ...prev, [day]: !prev[day] }));
-  };
-
-  const saveDataWithRetry = async (dataToSave: Schedule): Promise<Schedule> => {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-            const response = await fetch(API_URL, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(dataToSave),
@@ -214,47 +49,121 @@ const App: React.FC = () => {
     throw new Error("Save operation failed after all retries.");
   };
 
-  const handleSaveChanges = async () => {
-    setIsSaving(true);
-    setError('');
-    
-    const newSchedule = { ...schedule };
-    DAYS_OF_WEEK.forEach(day => {
-        const isSelected = selectedDays[day];
-        const scheduledUsers = newSchedule[day] ? [...newSchedule[day]] : [];
-        const userIndex = scheduledUsers.indexOf(currentUser.id);
+  const fetchSchedule = useCallback(async () => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const url = new URL(API_URL);
+            url.searchParams.append('t', new Date().getTime().toString());
 
-        if (isSelected && userIndex === -1) {
-            scheduledUsers.push(currentUser.id);
-        } else if (!isSelected && userIndex > -1) {
-            scheduledUsers.splice(userIndex, 1);
+            const response = await fetch(url.toString(), { cache: 'no-store' });
+            let data: Schedule;
+            if (!response.ok) {
+                if (response.status === 404) {
+                    console.warn('Schedule not found (404), initializing a new one.');
+                    data = getEmptySchedule();
+                } else {
+                    throw new Error('Network response was not ok');
+                }
+            } else {
+                data = await response.json();
+            }
+            
+            setSchedule(data);
+            setError('');
+            return;
+        } catch (err) {
+            console.error(`Failed to fetch schedule (attempt ${attempt}):`, err);
+            if (attempt === 3) {
+                setError("Não foi possível carregar a agenda. Verifique sua conexão e tente recarregar a página.");
+            }
+            await new Promise(res => setTimeout(res, 1000 * attempt));
         }
-        newSchedule[day] = scheduledUsers.sort((a,b) => a - b);
+    }
+  }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+    fetchSchedule().finally(() => {
+        setIsLoading(false);
     });
+    
+    const intervalId = setInterval(fetchSchedule, 15000); 
+    
+    return () => clearInterval(intervalId);
+  }, [fetchSchedule]);
+
+
+  const updateUserSelection = useCallback((user: User, currentSchedule: Schedule) => {
+    const userSelections: { [day: string]: boolean } = {};
+    if (!currentSchedule) return;
+    DAYS_OF_WEEK.forEach(day => {
+      userSelections[day] = currentSchedule[day]?.includes(user.id) || false;
+    });
+    setSelectedDays(userSelections);
+  }, []);
+
+  useEffect(() => {
+    if (schedule && Object.keys(schedule).length > 0) {
+      updateUserSelection(currentUser, schedule);
+    }
+  }, [currentUser, schedule, updateUserSelection]);
+
+  const handleUserChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedUser = USERS.find(u => u.name === event.target.value);
+    if (selectedUser) {
+      setCurrentUser(selectedUser);
+    }
+  };
+
+  const handleToggleDay = async (day: string) => {
+    if (savingDay) return; // Prevent concurrent saves
+
+    setSavingDay(day);
+    setError('');
+
+    const isNowSelected = !selectedDays[day];
+    
+    // Optimistic UI update
+    setSelectedDays(prev => ({ ...prev, [day]: isNowSelected }));
+
+    const newSchedule = JSON.parse(JSON.stringify(schedule));
+    const scheduledUsers = newSchedule[day] ? [...newSchedule[day]] : [];
+    const userIndex = scheduledUsers.indexOf(currentUser.id);
+
+    if (isNowSelected && userIndex === -1) {
+        scheduledUsers.push(currentUser.id);
+    } else if (!isNowSelected && userIndex > -1) {
+        scheduledUsers.splice(userIndex, 1);
+    }
+    newSchedule[day] = scheduledUsers.sort((a,b) => a - b);
     
     try {
         const updatedSchedule = await saveDataWithRetry(newSchedule);
         setSchedule(updatedSchedule);
-        setToastMessage('Agendamentos salvos com sucesso!');
+        setToastMessage('Agenda atualizada com sucesso!');
     } catch (err) {
-        setError("Não foi possível salvar as alterações. Tente novamente.");
+        setError("Não foi possível salvar a alteração. Sua seleção foi desfeita.");
+        // Revert optimistic update on failure
+        setSelectedDays(prev => ({ ...prev, [day]: !isNowSelected }));
     } finally {
-        setIsSaving(false);
+        setSavingDay(null);
     }
   };
   
-  const handleResetSchedule = async () => {
-    setIsResetting(true);
+  const handleCancelPresence = async (day: string, userId: number) => {
     setError('');
-    const emptySchedule = getEmptySchedule();
-    try {
-        const updatedSchedule = await saveDataWithRetry(emptySchedule);
-        setSchedule(updatedSchedule);
-        setToastMessage('Agenda da semana resetada!');
-    } catch (err) {
-        setError("Não foi possível resetar a agenda. Tente novamente.");
-    } finally {
-        setIsResetting(false);
+    const newSchedule = JSON.parse(JSON.stringify(schedule));
+    const userIndex = newSchedule[day]?.indexOf(userId);
+
+    if (userIndex > -1) {
+        newSchedule[day].splice(userIndex, 1);
+        try {
+            const updatedSchedule = await saveDataWithRetry(newSchedule);
+            setSchedule(updatedSchedule);
+            setToastMessage('Presença removida com sucesso!');
+        } catch (err) {
+            setError("Não foi possível remover a presença. Tente novamente.");
+        }
     }
   };
 
@@ -269,19 +178,8 @@ const App: React.FC = () => {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
-      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} />}
-      <div className="container mx-auto px-4 py-8">
-        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
-        <header className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
-            <span className="text-5xl">📅</span>
-            Agenda Semanal do Escritório
-          </h1>
-          <p className="text-lg text-gray-600">Planeje sua presença no escritório para a semana</p>
-        </header>
-
+  const renderAgenda = () => (
+    <>
         <div className="max-w-xs mx-auto mb-10 relative">
           <select
             value={currentUser.name}
@@ -309,56 +207,52 @@ const App: React.FC = () => {
                 currentUser={currentUser}
                 isSelected={selectedDays[day] || false}
                 onToggle={handleToggleDay}
-                weather={weatherForecast?.[day]}
-                weatherLoaded={weatherForecast !== null}
+                onCancelPresence={handleCancelPresence}
+                isSaving={savingDay === day}
               />
             );
           })}
         </main>
-        
-        <footer className="text-center space-y-8">
-          <div>
-            <button
-                onClick={handleSaveChanges}
-                disabled={isSaving || isResetting}
-                className="bg-green-600 text-white font-bold py-3 px-12 rounded-lg shadow-lg hover:bg-green-700 transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center mx-auto text-lg"
-            >
-                {isSaving ? (
-                    <>
-                        <SpinnerIcon className="w-5 h-5 mr-2" />
-                        Salvando...
-                    </>
-                ) : (
-                    <>
-                        <CalendarIcon className="w-5 h-5 mr-2" />
-                        Salvar minhas escolhas
-                    </>
-                )}
-            </button>
-            <p className="text-sm text-gray-500 mt-2">Marque os dias que você estará no escritório e clique em salvar</p>
-          </div>
-          <div>
-             <button
-                onClick={handleResetSchedule}
-                disabled={isSaving || isResetting}
-                className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg hover:bg-red-700 transition-all duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
-            >
-                 {isResetting ? (
-                    <>
-                        <SpinnerIcon className="w-4 h-4 mr-2" />
-                        Resetando...
-                    </>
-                 ) : (
-                    <>
-                        <ClockIcon className="w-4 h-4 mr-2" />
-                        Resetar Agenda Semanal
-                    </>
-                 )}
-            </button>
-            <p className="text-xs text-gray-500 mt-2">* Esta ação remove todos os agendamentos da semana</p>
-          </div>
-        </footer>
+    </>
+  );
 
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} />}
+      <div className="container mx-auto px-4 py-8">
+        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+        <header className="text-center mb-6">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
+            <span className="text-5xl">📅</span>
+            Agenda Semanal do Escritório
+          </h1>
+          <p className="text-lg text-gray-600">Planeje sua presença no escritório para a semana</p>
+        </header>
+
+        <nav className="flex justify-center mb-10">
+          <div className="flex border border-gray-300 rounded-lg p-1 bg-gray-100 shadow-sm">
+            <button
+              onClick={() => setView('agenda')}
+              className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
+                view === 'agenda' ? 'bg-white text-indigo-600 shadow' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <BookOpenIcon className="w-5 h-5" />
+              Agenda
+            </button>
+            <button
+              onClick={() => setView('history')}
+              className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
+                view === 'history' ? 'bg-white text-indigo-600 shadow' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <HistoryIcon className="w-5 h-5" />
+              Histórico
+            </button>
+          </div>
+        </nav>
+
+        {view === 'agenda' ? renderAgenda() : <HistoryView />}
       </div>
     </div>
   );

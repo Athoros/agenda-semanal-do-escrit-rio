@@ -17,3 +17,6 @@ export const DAYS_OF_WEEK: string[] = [
   'Quinta-feira',
   'Sexta-feira',
 ];
+
+export const API_URL = 'https://api.npoint.io/ad63fecfda78b862f288';
+export const HISTORY_API_URL = 'https://api.npoint.io/38a8d328af8a77a3247b';
