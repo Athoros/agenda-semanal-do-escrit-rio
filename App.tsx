@@ -19,7 +19,7 @@ type DayStatus = 'idle' | 'saving' | 'success' | 'error';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'agenda' | 'history'>('agenda');
-  const [currentUser, setCurrentUser] = useState<User>(USERS[0]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [schedule, setSchedule] = useState<Schedule>({});
   const [selectedDays, setSelectedDays] = useState<{ [day: string]: boolean }>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -103,11 +103,11 @@ const App: React.FC = () => {
   }, [fetchSchedule]);
 
 
-  const updateUserSelection = useCallback((user: User, currentSchedule: Schedule) => {
+  const updateUserSelection = useCallback((user: User | null, currentSchedule: Schedule) => {
     const userSelections: { [day: string]: boolean } = {};
     if (!currentSchedule) return;
     DAYS_OF_WEEK.forEach(day => {
-      userSelections[day] = currentSchedule[day]?.includes(user.id) || false;
+      userSelections[day] = user ? currentSchedule[day]?.includes(user.id) || false : false;
     });
     setSelectedDays(userSelections);
   }, []);
@@ -120,12 +120,14 @@ const App: React.FC = () => {
 
   const handleUserChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedUser = USERS.find(u => u.name === event.target.value);
-    if (selectedUser) {
-      setCurrentUser(selectedUser);
-    }
+    setCurrentUser(selectedUser || null);
   };
 
   const handleToggleDay = async (day: string) => {
+    if (!currentUser) {
+        setError("Por favor, selecione uma pessoa para fazer um agendamento.");
+        return;
+    }
     if (dayStatuses[day] && dayStatuses[day] !== 'idle') return;
 
     setDayStatuses(prev => ({ ...prev, [day]: 'saving' }));
@@ -162,6 +164,10 @@ const App: React.FC = () => {
   };
 
   const handleRemoveUser = async (day: string, userIdToRemove: number) => {
+    if (!currentUser) {
+        setError("Por favor, selecione uma pessoa para interagir com a agenda.");
+        return;
+    }
     if (dayStatuses[day] && dayStatuses[day] !== 'idle') return;
 
     setDayStatuses(prev => ({ ...prev, [day]: 'saving' }));
@@ -204,10 +210,10 @@ const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-[#1E2024] flex items-center justify-center">
         <div className="text-center">
-          <SpinnerIcon className="w-12 h-12 text-indigo-600 mx-auto" />
-          <p className="text-lg text-gray-600 mt-4">Carregando agenda compartilhada...</p>
+          <SpinnerIcon className="w-12 h-12 text-cyan-500 mx-auto" />
+          <p className="text-lg text-gray-400 mt-4">Carregando agenda compartilhada...</p>
         </div>
       </div>
     );
@@ -217,15 +223,16 @@ const App: React.FC = () => {
     <>
         <div className="max-w-xs mx-auto mb-10 relative">
           <select
-            value={currentUser.name}
+            value={currentUser?.name || ""}
             onChange={handleUserChange}
-            className="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 appearance-none bg-white"
+            className="w-full p-3 border border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 appearance-none bg-[#2C2F33] text-gray-200"
           >
+            <option value="" disabled>Selecione uma pessoa...</option>
             {USERS.map(user => (
               <option key={user.id} value={user.name}>{user.name}</option>
             ))}
           </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
             <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
           </div>
         </div>
@@ -251,41 +258,46 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
+    <div className="min-h-screen bg-[#1E2024] font-sans text-gray-300">
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} />}
       <div className="container mx-auto px-4 py-8">
-        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
-        <header className="text-center mb-6">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
-            <span className="text-5xl">📅</span>
-            Agenda Semanal do Escritório
-          </h1>
-          <p className="text-lg text-gray-600">Planeje sua presença no escritório para a semana</p>
+        <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700/50">
+          <div className="flex items-center gap-4">
+              <img 
+                src="https://api-zendesk-arcanjos.replit.app/assets/LOGOARC_1749750824381-DFtw5VI2.png" 
+                alt="Logo" 
+                className="h-10 object-contain"
+              />
+              <h1 className="text-2xl font-semibold text-gray-200 hidden sm:block">
+                  Agenda Semanal Arcanjos
+              </h1>
+          </div>
+          <nav>
+            <div className="flex border border-gray-700 rounded-lg p-1 bg-[#2C2F33] shadow-sm">
+              <button
+                onClick={() => setView('agenda')}
+                className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
+                  view === 'agenda' ? 'bg-cyan-500 text-white shadow' : 'text-gray-400 hover:bg-gray-700/50'
+                }`}
+              >
+                <BookOpenIcon className="w-5 h-5" />
+                Agenda
+              </button>
+              <button
+                onClick={() => setView('history')}
+                className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
+                  view === 'history' ? 'bg-cyan-500 text-white shadow' : 'text-gray-400 hover:bg-gray-700/50'
+                }`}
+              >
+                <HistoryIcon className="w-5 h-5" />
+                Histórico
+              </button>
+            </div>
+          </nav>
         </header>
 
-        <nav className="flex justify-center mb-10">
-          <div className="flex border border-gray-300 rounded-lg p-1 bg-gray-100 shadow-sm">
-            <button
-              onClick={() => setView('agenda')}
-              className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
-                view === 'agenda' ? 'bg-white text-indigo-600 shadow' : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <BookOpenIcon className="w-5 h-5" />
-              Agenda
-            </button>
-            <button
-              onClick={() => setView('history')}
-              className={`flex items-center gap-2 px-6 py-2 text-sm font-medium rounded-md transition-colors ${
-                view === 'history' ? 'bg-white text-indigo-600 shadow' : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <HistoryIcon className="w-5 h-5" />
-              Histórico
-            </button>
-          </div>
-        </nav>
-
+        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+        
         {view === 'agenda' ? renderAgenda() : <HistoryView />}
       </div>
     </div>

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { HistoryData, HistoryEntry, HistorySchedule, User } from '../types';
 import { HISTORY_API_URL, USERS, DAYS_OF_WEEK } from '../constants';
 import { SpinnerIcon } from './icons';
-import Avatar from './Avatar';
 
 const mapIdToUser = (idOrName: string | number): User | undefined => {
   if (typeof idOrName === 'number') {
@@ -25,9 +24,9 @@ const HistoryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
     if (!scheduleData || !week) return null;
 
     return (
-        <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8 transform hover:-translate-y-1 transition-transform duration-300">
-            <div className="p-6 bg-gray-50 border-b border-gray-200">
-                <h3 className="text-xl font-semibold text-gray-800 tracking-wide text-center">{week}</h3>
+        <div className="bg-[#2C2F33] rounded-xl shadow-lg overflow-hidden mb-8 transform hover:-translate-y-1 transition-transform duration-300">
+            <div className="p-6 bg-gray-800/50 border-b border-gray-700">
+                <h3 className="text-xl font-semibold text-gray-200 tracking-wide text-center">{week}</h3>
             </div>
             <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -38,17 +37,26 @@ const HistoryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
                             .filter((user): user is User => user !== undefined);
 
                         return (
-                            <div key={day} className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
-                                <h4 className="font-bold text-center text-gray-700 mb-3">{day}</h4>
-                                {scheduledUsers.length > 0 ? (
-                                    <div className="flex flex-wrap justify-center -space-x-2">
-                                        {scheduledUsers.map(user => (
-                                            <Avatar key={user.id} user={user} />
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-gray-500 text-center">Ninguém</p>
-                                )}
+                            <div key={day} className="border border-gray-700 rounded-lg p-4 bg-gray-800/20 flex flex-col">
+                                <h4 className="font-bold text-center text-gray-400 mb-3">{day}</h4>
+                                <div className="flex-grow flex items-center">
+                                    {scheduledUsers.length > 0 ? (
+                                        <div className="flex flex-wrap justify-center items-center gap-2 w-full">
+                                            {scheduledUsers.map(user => (
+                                                <div 
+                                                    key={user.id} 
+                                                    className="basis-[45%] grow-0 text-center bg-gray-600 text-gray-300 text-xs font-semibold px-2 py-1.5 rounded-full truncate"
+                                                >
+                                                    {user.name}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="w-full">
+                                            <p className="text-sm text-gray-500 text-center">Ninguém</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         );
                     })}
@@ -112,18 +120,18 @@ const HistoryView: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center p-10">
-        <SpinnerIcon className="w-10 h-10 text-indigo-500" />
-        <p className="ml-4 text-gray-600">Carregando histórico...</p>
+        <SpinnerIcon className="w-10 h-10 text-cyan-500" />
+        <p className="ml-4 text-gray-400">Carregando histórico...</p>
       </div>
     );
   }
 
   if (error) {
-    return <div className="text-center text-red-600 bg-red-100 p-4 rounded-lg">{error}</div>;
+    return <div className="text-center text-red-300 bg-red-900/50 p-4 rounded-lg">{error}</div>;
   }
 
   if (history.length === 0) {
-    return <div className="text-center text-gray-500 bg-gray-100 p-6 rounded-lg">Nenhum histórico de agendamento encontrado.</div>;
+    return <div className="text-center text-gray-500 bg-[#2C2F33] p-6 rounded-lg">Nenhum histórico de agendamento encontrado.</div>;
   }
 
   return (
