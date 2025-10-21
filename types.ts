@@ -1,6 +1,7 @@
 export interface User {
   id: number;
   name: string;
+  avatarColor: string;
 }
 
 export interface Schedule {

@@ -1,158 +1,138 @@
 import React, { useState, useEffect } from 'react';
-import { HistoryEntry } from '../types';
+import { HistoryData, HistoryEntry, HistorySchedule, User } from '../types';
 import { HISTORY_API_URL, USERS, DAYS_OF_WEEK } from '../constants';
-import { SpinnerIcon, AlertCircleIcon, CalendarIcon, UsersIcon } from './icons';
+import { SpinnerIcon } from './icons';
+import Avatar from './Avatar';
 
-const HistoryView: React.FC = () => {
-    const [history, setHistory] = useState<HistoryEntry[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [openWeek, setOpenWeek] = useState<string | null>(null);
-
-    useEffect(() => {
-        const fetchHistory = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const response = await fetch(`${HISTORY_API_URL}?t=${new Date().getTime()}`);
-                if (!response.ok) {
-                    throw new Error('Não foi possível carregar o histórico.');
-                }
-                const data = await response.json();
-                const sortedHistory = (data.historico_agendamentos || []).sort((a: HistoryEntry, b: HistoryEntry) => {
-                    const dateA = new Date(a.date || 0).getTime();
-                    const dateB = new Date(b.date || 0).getTime();
-                    // Basic sort for entries that might be missing proper date fields
-                    if (isNaN(dateA) || isNaN(dateB)) return 0;
-                    return dateB - dateA;
-                });
-                setHistory(sortedHistory);
-                if (sortedHistory.length > 0) {
-                    setOpenWeek(sortedHistory[0].semana || sortedHistory[0].date || null);
-                }
-            } catch (err) {
-                if (err instanceof Error) {
-                    setError(err.message);
-                } else {
-                    setError('Ocorreu um erro desconhecido.');
-                }
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchHistory();
-    }, []);
-
-    const getWeekDisplay = (entry: HistoryEntry): string => {
-        if (entry.semana) {
-            return `Semana arquivada: ${entry.semana}`;
-        }
-        if (entry.date) {
-            // Check if 'date' field contains a week range string
-            if (entry.date.includes('/') && entry.date.includes('-')) {
-                return `Semana arquivada: ${entry.date}`;
-            }
-            const d = new Date(entry.date);
-            if (!isNaN(d.getTime())) {
-                return `Semana arquivada em: ${d.toLocaleDateString('pt-BR', { year: 'numeric', month: 'long', day: 'numeric' })}`;
-            }
-        }
-        return 'Registro de semana';
-    };
-
-    const toggleWeek = (entry: HistoryEntry) => {
-        const entryId = entry.semana || entry.date || '';
-        setOpenWeek(openWeek === entryId ? null : entryId);
-    };
-
-    const getUserName = (id: number): string => {
-        return USERS.find(u => u.id === id)?.name || `ID ${id}`;
-    };
-
-    if (isLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center p-10">
-                <SpinnerIcon className="w-8 h-8 text-indigo-600" />
-                <p className="mt-2 text-gray-600">Carregando histórico...</p>
-            </div>
-        );
+const mapIdToUser = (idOrName: string | number): User | undefined => {
+  if (typeof idOrName === 'number') {
+    return USERS.find(u => u.id === idOrName);
+  }
+  if (typeof idOrName === 'string') {
+    // Handle "ID desconhecido: X" case
+    if (idOrName.startsWith('ID desconhecido:')) {
+      return undefined;
     }
+    return USERS.find(u => u.name === idOrName);
+  }
+  return undefined;
+};
 
-    if (error) {
-        return (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md shadow-md" role="alert">
-                <div className="flex">
-                    <div className="py-1"><AlertCircleIcon className="h-6 w-6 text-red-500 mr-3" /></div>
-                    <div><p className="font-bold">{error}</p></div>
-                </div>
-            </div>
-        );
-    }
-    
-    if (history.length === 0) {
-        return <p className="text-center text-gray-500">Nenhum histórico de agendamento encontrado.</p>;
-    }
+const HistoryCard: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
+    const scheduleData: HistorySchedule | undefined = entry.dados || entry.schedule;
+    const week = entry.semana || entry.date;
+
+    if (!scheduleData || !week) return null;
 
     return (
-        <div className="max-w-4xl mx-auto">
-            <div className="space-y-4">
-                {history.map((entry, index) => {
-                    const entryId = entry.semana || entry.date || `entry-${index}`;
-                    const isExpanded = openWeek === entryId;
-                    const schedule = entry.dados || entry.schedule || {};
+        <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8 transform hover:-translate-y-1 transition-transform duration-300">
+            <div className="p-6 bg-gray-50 border-b border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-800 tracking-wide text-center">{week}</h3>
+            </div>
+            <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    {DAYS_OF_WEEK.map(day => {
+                        const userIdsOrNames = scheduleData[day.toLowerCase()] || scheduleData[day] || [];
+                        const scheduledUsers = userIdsOrNames
+                            .map(mapIdToUser)
+                            .filter((user): user is User => user !== undefined);
 
-                    return (
-                        <div key={entryId} className="border border-gray-200 rounded-lg shadow-sm bg-white">
-                            <button
-                                onClick={() => toggleWeek(entry)}
-                                className="w-full flex justify-between items-center p-4 text-left focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                aria-expanded={isExpanded}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <CalendarIcon className="w-5 h-5 text-indigo-600" />
-                                    <span className="font-semibold text-gray-800">
-                                        {getWeekDisplay(entry)}
-                                    </span>
-                                </div>
-                                <svg
-                                    className={`w-5 h-5 text-gray-500 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-                            {isExpanded && (
-                                <div className="border-t border-gray-200 p-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {DAYS_OF_WEEK.map(day => {
-                                            const participants = schedule[day.toLowerCase()] || [];
-                                            return (
-                                            <div key={day} className="bg-gray-50 p-3 rounded-md">
-                                                <h4 className="font-bold text-sm text-gray-700 mb-2">{day}</h4>
-                                                <div className="space-y-1">
-                                                    {participants.length > 0 ? (
-                                                        participants.map((participant, pIndex) => (
-                                                            <div key={pIndex} className="flex items-center text-xs text-gray-800 bg-gray-200 px-2 py-1 rounded">
-                                                                <UsersIcon className="w-3 h-3 mr-2 flex-shrink-0" />
-                                                                <span>{typeof participant === 'number' ? getUserName(participant) : participant}</span>
-                                                            </div>
-                                                        ))
-                                                    ) : (
-                                                        <p className="text-xs text-gray-500 italic">Ninguém presente</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )})}
+                        return (
+                            <div key={day} className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
+                                <h4 className="font-bold text-center text-gray-700 mb-3">{day}</h4>
+                                {scheduledUsers.length > 0 ? (
+                                    <div className="flex flex-wrap justify-center -space-x-2">
+                                        {scheduledUsers.map(user => (
+                                            <Avatar key={user.id} user={user} />
+                                        ))}
                                     </div>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                                ) : (
+                                    <p className="text-sm text-gray-500 text-center">Ninguém</p>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
+};
+
+const HistoryView: React.FC = () => {
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      setIsLoading(true);
+      setError('');
+      try {
+        const url = new URL(HISTORY_API_URL);
+        url.searchParams.append('t', new Date().getTime().toString());
+
+        const response = await fetch(url.toString(), { cache: 'no-store' });
+        if (!response.ok) {
+            if (response.status === 404) {
+                setHistory([]); // No history yet, not an error
+                return;
+            }
+          throw new Error('Não foi possível carregar o histórico.');
+        }
+        const data: HistoryData = await response.json();
+        // Sort history from newest to oldest
+        const sortedHistory = (data.historico_agendamentos || []).sort((a, b) => {
+            const dateA = a.semana?.split(' - ')[0] || a.date || '';
+            const dateB = b.semana?.split(' - ')[0] || b.date || '';
+            
+            // Assuming format DD/MM/YYYY
+            const partsA = dateA.split('/');
+            const partsB = dateB.split('/');
+
+            if (partsA.length === 3 && partsB.length === 3) {
+                 const d1 = new Date(Number(partsA[2]), Number(partsA[1]) - 1, Number(partsA[0]));
+                 const d2 = new Date(Number(partsB[2]), Number(partsB[1]) - 1, Number(partsB[0]));
+                 return d2.getTime() - d1.getTime();
+            }
+
+            return 0; // Fallback if format is unexpected
+        });
+        setHistory(sortedHistory);
+      } catch (err) {
+        console.error('Failed to fetch history:', err);
+        setError(err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center p-10">
+        <SpinnerIcon className="w-10 h-10 text-indigo-500" />
+        <p className="ml-4 text-gray-600">Carregando histórico...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return <div className="text-center text-red-600 bg-red-100 p-4 rounded-lg">{error}</div>;
+  }
+
+  if (history.length === 0) {
+    return <div className="text-center text-gray-500 bg-gray-100 p-6 rounded-lg">Nenhum histórico de agendamento encontrado.</div>;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {history.map((entry, index) => (
+        <HistoryCard key={index} entry={entry} />
+      ))}
+    </div>
+  );
 };
 
 export default HistoryView;

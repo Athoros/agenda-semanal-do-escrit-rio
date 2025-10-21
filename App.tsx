@@ -5,7 +5,7 @@ import DayCard from './components/DayCard';
 import Toast from './components/Toast';
 import ErrorBanner from './components/ErrorBanner';
 import HistoryView from './components/HistoryView';
-import { CalendarIcon, HistoryIcon, BookOpenIcon, SpinnerIcon } from './components/icons';
+import { BookOpenIcon, HistoryIcon, SpinnerIcon } from './components/icons';
 
 const getEmptySchedule = (): Schedule => {
     const emptySchedule: Schedule = {};
@@ -15,15 +15,25 @@ const getEmptySchedule = (): Schedule => {
     return emptySchedule;
 };
 
+type DayStatus = 'idle' | 'saving' | 'success' | 'error';
+
 const App: React.FC = () => {
   const [view, setView] = useState<'agenda' | 'history'>('agenda');
   const [currentUser, setCurrentUser] = useState<User>(USERS[0]);
   const [schedule, setSchedule] = useState<Schedule>({});
   const [selectedDays, setSelectedDays] = useState<{ [day: string]: boolean }>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [savingDay, setSavingDay] = useState<string | null>(null);
+  const [dayStatuses, setDayStatuses] = useState<{ [day: string]: DayStatus }>({});
   const [toastMessage, setToastMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    const initialStatuses: { [day: string]: DayStatus } = {};
+    DAYS_OF_WEEK.forEach(day => {
+      initialStatuses[day] = 'idle';
+    });
+    setDayStatuses(initialStatuses);
+  }, []);
 
   const saveDataWithRetry = async (dataToSave: any, url: string = API_URL): Promise<any> => {
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -116,14 +126,13 @@ const App: React.FC = () => {
   };
 
   const handleToggleDay = async (day: string) => {
-    if (savingDay) return; // Prevent concurrent saves
+    if (dayStatuses[day] && dayStatuses[day] !== 'idle') return;
 
-    setSavingDay(day);
+    setDayStatuses(prev => ({ ...prev, [day]: 'saving' }));
     setError('');
 
     const isNowSelected = !selectedDays[day];
     
-    // Optimistic UI update
     setSelectedDays(prev => ({ ...prev, [day]: isNowSelected }));
 
     const newSchedule = JSON.parse(JSON.stringify(schedule));
@@ -140,30 +149,56 @@ const App: React.FC = () => {
     try {
         const updatedSchedule = await saveDataWithRetry(newSchedule);
         setSchedule(updatedSchedule);
-        setToastMessage('Agenda atualizada com sucesso!');
+        setDayStatuses(prev => ({ ...prev, [day]: 'success' }));
     } catch (err) {
         setError("Não foi possível salvar a alteração. Sua seleção foi desfeita.");
-        // Revert optimistic update on failure
         setSelectedDays(prev => ({ ...prev, [day]: !isNowSelected }));
+        setDayStatuses(prev => ({ ...prev, [day]: 'error' }));
     } finally {
-        setSavingDay(null);
+        setTimeout(() => {
+            setDayStatuses(prev => ({ ...prev, [day]: 'idle' }));
+        }, 1500);
     }
   };
-  
-  const handleCancelPresence = async (day: string, userId: number) => {
+
+  const handleRemoveUser = async (day: string, userIdToRemove: number) => {
+    if (dayStatuses[day] && dayStatuses[day] !== 'idle') return;
+
+    setDayStatuses(prev => ({ ...prev, [day]: 'saving' }));
     setError('');
+
+    const originalSchedule = JSON.parse(JSON.stringify(schedule));
+    const wasCurrentUserSelected = selectedDays[day];
+    
     const newSchedule = JSON.parse(JSON.stringify(schedule));
-    const userIndex = newSchedule[day]?.indexOf(userId);
+    const userIndex = newSchedule[day]?.indexOf(userIdToRemove);
 
     if (userIndex > -1) {
         newSchedule[day].splice(userIndex, 1);
-        try {
-            const updatedSchedule = await saveDataWithRetry(newSchedule);
-            setSchedule(updatedSchedule);
-            setToastMessage('Presença removida com sucesso!');
-        } catch (err) {
-            setError("Não foi possível remover a presença. Tente novamente.");
+        setSchedule(newSchedule); // Optimistic update
+        if (currentUser.id === userIdToRemove) {
+            setSelectedDays(prev => ({ ...prev, [day]: false }));
         }
+    } else {
+        setDayStatuses(prev => ({ ...prev, [day]: 'idle' }));
+        return;
+    }
+    
+    try {
+        const updatedSchedule = await saveDataWithRetry(newSchedule);
+        setSchedule(updatedSchedule);
+        setDayStatuses(prev => ({ ...prev, [day]: 'success' }));
+    } catch (err) {
+        setError("Não foi possível remover o usuário. A alteração foi desfeita.");
+        setSchedule(originalSchedule); // Rollback
+        if (currentUser.id === userIdToRemove) {
+            setSelectedDays(prev => ({ ...prev, [day]: wasCurrentUserSelected }));
+        }
+        setDayStatuses(prev => ({ ...prev, [day]: 'error' }));
+    } finally {
+        setTimeout(() => {
+            setDayStatuses(prev => ({ ...prev, [day]: 'idle' }));
+        }, 1500);
     }
   };
 
@@ -204,11 +239,10 @@ const App: React.FC = () => {
                 key={day}
                 day={day}
                 scheduledUsers={scheduledUsers}
-                currentUser={currentUser}
                 isSelected={selectedDays[day] || false}
                 onToggle={handleToggleDay}
-                onCancelPresence={handleCancelPresence}
-                isSaving={savingDay === day}
+                onRemoveUser={(userId: number) => handleRemoveUser(day, userId)}
+                status={dayStatuses[day] || 'idle'}
               />
             );
           })}
