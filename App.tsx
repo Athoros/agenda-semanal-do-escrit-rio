@@ -121,6 +121,10 @@ const App: React.FC = () => {
   const handleUserChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedUser = USERS.find(u => u.name === event.target.value);
     setCurrentUser(selectedUser || null);
+    if (selectedUser?.name === 'Jeremias') {
+      const audio = new Audio('https://www.myinstants.com/media/sounds/humm_-boiola-panico-na-tv.mp3');
+      audio.play();
+    }
   };
 
   const handleToggleDay = async (day: string) => {
@@ -135,6 +139,11 @@ const App: React.FC = () => {
 
     const isNowSelected = !selectedDays[day];
     
+    if (currentUser.name === 'Jeremias' && isNowSelected) {
+      const audio = new Audio('https://www.myinstants.com/media/sounds/ah-ze-da-manga_dgSl2iS.mp3');
+      audio.play();
+    }
+
     setSelectedDays(prev => ({ ...prev, [day]: isNowSelected }));
 
     const newSchedule = JSON.parse(JSON.stringify(schedule));
